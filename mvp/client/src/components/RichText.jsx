@@ -26,7 +26,7 @@ function buildSegments(text) {
 function renderSegments(segments, onMetricClick) {
   return segments.map((segment, index) => {
     if (segment.type === 'metric') {
-      return (
+            return (
         <button
           key={`metric-${segment.value}-${index}`}
           type="button"
@@ -59,19 +59,19 @@ export function RichText({ text, onMetricClick }) {
         if (trimmed.startsWith('### ')) {
           const content = line.replace(/^###\s*/, '');
           return (
-            <h4 key={`h4-${index}`}>{renderSegments(buildSegments(content), onMetricClick)}</h4>
+            <h4 key={`h4-${index}`}>{renderSegments(buildSegments(content), onMetricClick, metricIndex)}</h4>
           );
         }
         if (trimmed.startsWith('## ')) {
           const content = line.replace(/^##\s*/, '');
           return (
-            <h3 key={`h3-${index}`}>{renderSegments(buildSegments(content), onMetricClick)}</h3>
+            <h3 key={`h3-${index}`}>{renderSegments(buildSegments(content), onMetricClick, metricIndex)}</h3>
           );
         }
         if (trimmed.startsWith('# ')) {
           const content = line.replace(/^#\s*/, '');
           return (
-            <h2 key={`h2-${index}`}>{renderSegments(buildSegments(content), onMetricClick)}</h2>
+            <h2 key={`h2-${index}`}>{renderSegments(buildSegments(content), onMetricClick, metricIndex)}</h2>
           );
         }
         if (trimmed.startsWith('- ')) {
@@ -89,13 +89,13 @@ export function RichText({ text, onMetricClick }) {
           return (
             <div key={`number-${index}`} className="bullet-line">
               <span className="bullet">{order}.</span>
-              <span>{renderSegments(buildSegments(content), onMetricClick)}</span>
+              <span>{renderSegments(buildSegments(content), onMetricClick, metricIndex)}</span>
             </div>
           );
         }
 
         return (
-          <p key={`p-${index}`}>{renderSegments(buildSegments(line), onMetricClick)}</p>
+          <p key={`p-${index}`}>{renderSegments(buildSegments(line), onMetricClick, metricIndex)}</p>
         );
       })}
     </div>

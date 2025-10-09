@@ -614,6 +614,23 @@ function updateNote(id, payload) {
   return { ...note };
 }
 
+function deleteNote(id) {
+  const index = notes.findIndex((n) => n.id === id);
+  if (index === -1) return false;
+
+  const noteId = notes[index].id;
+  notes.splice(index, 1);
+  noteRevisions.delete(noteId);
+
+  metricLinkedNotes.forEach((noteSet) => {
+    if (noteSet.has(noteId)) {
+      noteSet.delete(noteId);
+    }
+  });
+
+  return true;
+}
+
 function listMetrics({ query } = {}) {
   const keyword = query ? query.trim().toLowerCase() : '';
   return metrics
@@ -860,6 +877,7 @@ module.exports = {
   getMetricsForNote,
   createNote,
   updateNote,
+  deleteNote,
   listMetrics,
   getMetricById,
   createMetric,

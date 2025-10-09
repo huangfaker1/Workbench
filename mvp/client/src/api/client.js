@@ -1,11 +1,12 @@
-const DEFAULT_HEADERS = {
-  'Content-Type': 'application/json'
-};
-
 async function request(path, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (options.body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
+
   const response = await fetch(path, {
-    headers: DEFAULT_HEADERS,
-    ...options
+    ...options,
+    headers
   });
 
   if (!response.ok) {
@@ -31,6 +32,7 @@ export const api = {
   getNote: (id) => request(`/api/notes/${id}`),
   createNote: (payload) => request('/api/notes', { method: 'POST', body: JSON.stringify(payload) }),
   updateNote: (id, payload) => request(`/api/notes/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteNote: (id) => request(`/api/notes/${id}`, { method: 'DELETE' }),
   getNoteHistory: (id) => request(`/api/notes/${id}/history`),
   getNoteRelatedMetrics: (id) => request(`/api/notes/${id}/related-metrics`),
 

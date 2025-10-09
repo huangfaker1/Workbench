@@ -2,128 +2,112 @@ import { useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { api } from '../api/client';
 import { useAsync } from '../hooks/useAsync';
-import { formatDate, formatFolderPath } from '../utils/format';
-import RichText from '../components/RichText';
+import { formatDate } from '../utils/format';
 import NoteForm from '../components/NoteForm';
+import NoteDetailEditor from '../components/editor/NoteDetailEditor';
 
-function NoteHighlights({ highlights, onMetricNavigate }) {
-  if (!highlights || highlights.length === 0) {
-    return <p className="muted">暂无要点</p>;
-  }
-  return (
-    <ul className="highlight-list">
-      {highlights.map((highlight) => (
-        <li key={highlight.id}>
-          <RichText text={highlight.text} onMetricClick={onMetricNavigate} />
-          <div className="highlight-meta">
-            <span className="tag">状态：{highlight.status || '未设定'}</span>
-            {highlight.owner ? <span className="tag">负责人：{highlight.owner}</span> : null}
-            {highlight.dueDate ? <span className="tag">截止：{highlight.dueDate}</span> : null}
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
+function buildNoteTree(notes) {
+  const root = {
+    id: 'folder-root',
+    name: '全部',
+    type: 'folder',
+    path: [],
+    children: []
+  };
+  const folderMap = new Map();
+  folderMap.set('', root);
+
+  notes.forEach((note) => {
+    const path = note.folderPath || [];
+    let parentKey = '';
+    path.forEach((segment, index) => {
+      const currentPath = path.slice(0, index + 1);
+      const key = currentPath.join(' / ');
+      if (!folderMap.has(key)) {
+        const folderNode = {
+          id: `folder-${key || 'root'}`,
+          name: segment,
+          type: 'folder',
+          path: currentPath,
+          children: []
+        };
+        folderMap.get(parentKey).children.push(folderNode);
+        folderMap.set(key, folderNode);
+      }
+      parentKey = key;
+    });
+
+    const targetFolder = folderMap.get(parentKey);
+    targetFolder.children.push({
+      id: note.id,
+      name: note.title,
+      type: 'note',
+      note,
+      path: note.folderPath || []
+    });
+  });
+
+  return root;
 }
 
-NoteHighlights.propTypes = {
-  highlights: PropTypes.arrayOf(
-    PropTypes.shape({
-      id: PropTypes.string,
-      text: PropTypes.string,
-      status: PropTypes.string,
-      owner: PropTypes.string,
-      dueDate: PropTypes.string
-    })
-  ),
-  onMetricNavigate: PropTypes.func
-};
-
-NoteHighlights.defaultProps = {
-  highlights: [],
-  onMetricNavigate: undefined
-};
-
-function RelatedMetricList({ metrics, onMetricNavigate, noteUpdatedAt }) {
-  if (!metrics || metrics.length === 0) {
-    return <p className="muted">暂无关联指标</p>;
+function flattenNotes(node, acc = []) {
+  if (!node || !node.children) {
+    return acc;
   }
 
-  return (
-    <ul className="metric-summary-list">
-      {metrics.map((metric) => {
-        const isOutdated = noteUpdatedAt && metric.updatedAt && new Date(metric.updatedAt) > new Date(noteUpdatedAt);
-        return (
-          <li key={metric.id} className={isOutdated ? 'outdated' : ''}>
-            <div>
-              <button type="button" className="link-button" onClick={() => onMetricNavigate(metric.id)}>
-                {metric.name}
-              </button>
-              <span className="tag">版本：{metric.currentVersion || '未发布'}</span>
-              <span className="tag">刷新：{metric.refreshFrequency || '未知'}</span>
-            </div>
-            {isOutdated ? <span className="warning">指标有更新，建议同步口径</span> : null}
-          </li>
-        );
-      })}
-    </ul>
-  );
+  node.children.forEach((child) => {
+    if (child.type === 'note') {
+      acc.push({
+        id: child.id,
+        depth: child.path?.length || 0,
+        note: child.note
+      });
+    } else if (child.type === 'folder') {
+      flattenNotes(child, acc);
+    }
+  });
+
+  return acc;
 }
 
-RelatedMetricList.propTypes = {
-  metrics: PropTypes.arrayOf(
-    PropTypes.shape({
-      id: PropTypes.string.isRequired,
-      name: PropTypes.string.isRequired,
-      currentVersion: PropTypes.string,
-      refreshFrequency: PropTypes.string,
-      updatedAt: PropTypes.string
-    })
-  ),
-  onMetricNavigate: PropTypes.func,
-  noteUpdatedAt: PropTypes.string
-};
-
-RelatedMetricList.defaultProps = {
-  metrics: [],
-  onMetricNavigate: undefined,
-  noteUpdatedAt: ''
-};
 
 function NotesWorkspace({ onMetricNavigate }) {
   const { data: notesData, loading, error, execute: reloadNotes, setData } = useAsync(() => api.listNotes(), []);
   const [selectedNoteId, setSelectedNoteId] = useState(null);
   const [noteDetail, setNoteDetail] = useState(null);
   const [relatedMetrics, setRelatedMetrics] = useState([]);
-  const [activeFolder, setActiveFolder] = useState('全部');
   const [mode, setMode] = useState('view'); // view | create | edit
   const [draftInitial, setDraftInitial] = useState({});
 
   const notes = notesData || [];
 
-  const folderOptions = useMemo(() => {
-    const set = new Set();
-    notes.forEach((note) => {
-      const pathLabel = formatFolderPath(note.folderPath);
-      if (pathLabel) {
-        set.add(pathLabel);
-      }
-    });
-    return ['全部', ...Array.from(set)];
-  }, [notes]);
+  const noteTree = useMemo(() => buildNoteTree(notes), [notes]);
+  const orderedNotes = useMemo(() => flattenNotes(noteTree), [noteTree]);
+
+  const [sidebarSearch, setSidebarSearch] = useState('');
+  const [inspectorTab, setInspectorTab] = useState('property');
 
   const filteredNotes = useMemo(() => {
-    if (activeFolder === '全部') {
-      return notes;
-    }
-    return notes.filter((note) => formatFolderPath(note.folderPath) === activeFolder);
-  }, [notes, activeFolder]);
+    const keyword = sidebarSearch.trim().toLowerCase();
+    if (!keyword) return orderedNotes;
+    return orderedNotes.filter(({ note }) => note.title.toLowerCase().includes(keyword));
+  }, [orderedNotes, sidebarSearch]);
+
 
   useEffect(() => {
-    if (!selectedNoteId && filteredNotes.length > 0 && mode === 'view') {
-      setSelectedNoteId(filteredNotes[0].id);
+    if (!selectedNoteId && orderedNotes.length > 0 && mode === 'view') {
+      setSelectedNoteId(orderedNotes[0].note.id);
     }
-  }, [filteredNotes, selectedNoteId, mode]);
+  }, [orderedNotes, selectedNoteId, mode]);
+
+  useEffect(() => {
+    if (orderedNotes.length > 0 && mode === 'view') {
+      const exists = orderedNotes.some((item) => item.note.id === selectedNoteId);
+      if (!exists) {
+        setSelectedNoteId(orderedNotes[0].note.id);
+      }
+    }
+  }, [orderedNotes, selectedNoteId, mode]);
 
   useEffect(() => {
     if (!selectedNoteId) {
@@ -162,6 +146,7 @@ function NotesWorkspace({ onMetricNavigate }) {
       setSelectedNoteId(created.id);
       const metricsResponse = await api.getNoteRelatedMetrics(created.id);
       setRelatedMetrics(metricsResponse);
+      setInspectorTab('property');
     } catch (err) {
       alert(err.message);
     }
@@ -184,6 +169,28 @@ function NotesWorkspace({ onMetricNavigate }) {
     }
   };
 
+  const handleDelete = async (target) => {
+    const noteId = typeof target === 'string' ? target : target?.id;
+    if (!noteId) return;
+    const targetNote = typeof target === 'object' && target ? target : notes.find((item) => item.id === noteId) || noteDetail;
+    const confirmed = window.confirm(`确定要删除笔记“${targetNote?.title ?? ''}”吗？`);
+    if (!confirmed) return;
+    try {
+      await api.deleteNote(noteId);
+      const updatedList = await reloadNotes();
+      if (updatedList) {
+        setData(updatedList);
+      }
+      setSelectedNoteId(null);
+      setNoteDetail(null);
+      setRelatedMetrics([]);
+      setMode('view');
+      setInspectorTab('property');
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   const handleMetricClick = (metricName) => {
     if (!onMetricNavigate) return;
     const matched = relatedMetrics.find((item) => item.name === metricName);
@@ -194,81 +201,149 @@ function NotesWorkspace({ onMetricNavigate }) {
     }
   };
 
+  const handleNoteSelect = (note) => {
+    setSelectedNoteId(note.id);
+    setMode('view');
+  };
+
+  const handleCreateUnderFolder = (path, defaultTitle = '') => {
+    const folderClone = path.slice();
+    setDraftInitial({
+      title: defaultTitle,
+      folderPath: folderClone
+    });
+    setMode('create');
+    setSelectedNoteId(null);
+    setNoteDetail(null);
+    setRelatedMetrics([]);
+  };
+
+  const handleInlineSave = async (payload) => {
+    if (!payload?.id) return;
+    const { id, ...rest } = payload;
+    try {
+      const updated = await api.updateNote(id, { ...rest, updatedBy: rest.owner });
+      const updatedList = await reloadNotes();
+      if (updatedList) {
+        setData(updatedList);
+      }
+      setNoteDetail(updated);
+      const metricsResponse = await api.getNoteRelatedMetrics(updated.id);
+      setRelatedMetrics(metricsResponse);
+    } catch (error) {
+      console.error(error);
+      throw error;
+    }
+  };
+
+  const handleDuplicate = (source) => {
+    const origin = source || noteDetail;
+    if (!origin) return;
+    const cloneInitial = {
+      title: `${origin.title || '未命名笔记'}（复制）`,
+      summary: origin.summary,
+      body: origin.body,
+      folderPath: origin.folderPath,
+      owner: origin.owner,
+      tags: origin.tags,
+      highlights: origin.highlights
+    };
+    setDraftInitial(cloneInitial);
+    setMode('create');
+    setSelectedNoteId(null);
+  };
+
   return (
     <div className="workspace notes-workspace">
-      <aside className="sidebar">
-        <div className="sidebar-header">
-          <h2>目录</h2>
+      <aside className="note-pane-sidebar">
+        <div className="note-sidebar-header">
+          <h2>我的笔记</h2>
           <button
             type="button"
-            className="primary"
+            className="note-sidebar-create"
             onClick={() => {
-              setDraftInitial({
-                folderPath: activeFolder === '全部' ? [] : activeFolder.split(' / ')
-              });
-              setMode('create');
-              setSelectedNoteId(null);
+              const selected = orderedNotes.find((item) => item.note.id === selectedNoteId);
+              const targetPath = selected ? selected.note.folderPath || [] : [];
+              handleCreateUnderFolder(targetPath);
             }}
+            aria-label="新建笔记"
           >
-            新建笔记
+            +
           </button>
         </div>
-        <ul className="folder-list">
-          {folderOptions.map((folder) => (
-            <li key={folder}>
-              <button
-                type="button"
-                className={folder === activeFolder ? 'active' : ''}
-                onClick={() => {
-                  setActiveFolder(folder);
-                  setMode('view');
-                }}
-              >
-                {folder}
-              </button>
-            </li>
-          ))}
-        </ul>
-        <div className="note-count">共 {filteredNotes.length} 条笔记</div>
+        <div className="note-sidebar-search">
+          <span aria-hidden="true">🔍</span>
+          <input
+            value={sidebarSearch}
+            onChange={(event) => setSidebarSearch(event.target.value)}
+            placeholder="搜索笔记..."
+          />
+        </div>
+        <div className="note-sidebar-body">
+          <nav className="note-tree">
+            {filteredNotes.length > 0 ? (
+              <ul>
+                {filteredNotes.map(({ id, note, depth }) => {
+                  const isActiveNote = selectedNoteId === note.id;
+                  const paddingLeft = depth * 16 + 16;
+                  return (
+                    <li key={id}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className={`note-tree-row note${isActiveNote ? ' active' : ''}`}
+                        style={{ paddingLeft: `${paddingLeft}px` }}
+                        onClick={() => handleNoteSelect(note)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            handleNoteSelect(note);
+                          }
+                        }}
+                        title={note.title}
+                      >
+                        <span className="tree-icon note" aria-hidden="true" />
+                        <span className="tree-label">{note.title}</span>
+                        <span
+                          role="button"
+                          tabIndex={-1}
+                          className="tree-action add"
+                          aria-label={`在${note.title}下新建子笔记`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            const basePath = note.folderPath || [];
+                            const nestedPath = [...basePath, note.title];
+                            handleCreateUnderFolder(nestedPath);
+                          }}
+                        >
+                          +
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="muted">暂无匹配笔记</p>
+            )}
+          </nav>
+        </div>
+        <div className="note-sidebar-footer">
+          <div className="note-count">共 {notes.length} 条笔记</div>
+        </div>
       </aside>
 
-      <section className="content">
-        <div className="note-list">
+      <div className="note-main-layout">
+        <section className="note-editor-column">
           {loading ? <p>加载中...</p> : null}
           {error ? <p className="error">{error.message}</p> : null}
-          {!loading && filteredNotes.length === 0 ? <p className="muted">当前目录暂无笔记</p> : null}
-          <ul>
-            {filteredNotes.map((note) => (
-              <li key={note.id}>
-                <button
-                  type="button"
-                  className={selectedNoteId === note.id ? 'active' : ''}
-                  onClick={() => {
-                    setMode('view');
-                    setSelectedNoteId(note.id);
-                  }}
-                >
-                  <h3>{note.title}</h3>
-                  <p className="note-summary">{note.summary}</p>
-                  <div className="note-meta">
-                    <span>{formatFolderPath(note.folderPath) || '未分类'}</span>
-                    <span>更新时间：{formatDate(note.updatedAt)}</span>
-                  </div>
-                  <div className="note-tags">
-                    {note.tags?.domain ? <span className="tag">{note.tags.domain}</span> : null}
-                    {note.tags?.perspective ? <span className="tag">{note.tags.perspective}</span> : null}
-                    {note.tags?.time ? <span className="tag">{note.tags.time}</span> : null}
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
+          {mode === 'view' && !loading && orderedNotes.length === 0 ? (
+            <p className="muted">暂无笔记</p>
+          ) : null}
 
-        <div className="note-detail">
           {mode === 'create' ? (
-            <div className="card">
-              <header className="card-header">
+            <div className="note-editor-surface note-editor-form">
+              <header className="note-editor-form-header">
                 <h2>新建笔记</h2>
               </header>
               <NoteForm
@@ -277,8 +352,8 @@ function NotesWorkspace({ onMetricNavigate }) {
                 onSubmit={handleCreate}
                 onCancel={() => {
                   setMode('view');
-                  if (filteredNotes.length > 0) {
-                    setSelectedNoteId(filteredNotes[0].id);
+                  if (orderedNotes.length > 0) {
+                    setSelectedNoteId(orderedNotes[0].note.id);
                   }
                 }}
               />
@@ -286,8 +361,8 @@ function NotesWorkspace({ onMetricNavigate }) {
           ) : null}
 
           {mode === 'edit' && noteDetail ? (
-            <div className="card">
-              <header className="card-header">
+            <div className="note-editor-surface note-editor-form">
+              <header className="note-editor-form-header">
                 <h2>编辑笔记</h2>
               </header>
               <NoteForm
@@ -300,83 +375,99 @@ function NotesWorkspace({ onMetricNavigate }) {
           ) : null}
 
           {mode === 'view' && noteDetail ? (
-            <div className="card">
-              <header className="card-header">
-                <div>
-                  <h2>{noteDetail.title}</h2>
-                  <p className="muted">
-                    {formatFolderPath(noteDetail.folderPath) || '未分类'} · Owner：{noteDetail.owner} · 更新于 {formatDate(noteDetail.updatedAt)}
-                  </p>
-                </div>
-                <div className="card-actions">
-                  <button type="button" onClick={() => setMode('edit')}>
-                    编辑
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!noteDetail) return;
-                      const cloneInitial = {
-                        title: `${noteDetail.title}（复制）`,
-                        summary: noteDetail.summary,
-                        body: noteDetail.body,
-                        folderPath: noteDetail.folderPath,
-                        owner: noteDetail.owner,
-                        tags: noteDetail.tags,
-                        highlights: noteDetail.highlights
-                      };
-                      setDraftInitial(cloneInitial);
-                      setMode('create');
-                      setSelectedNoteId(null);
-                    }}
-                  >
-                    复制新建
-                  </button>
-                </div>
-              </header>
-
-              <section>
-                <h3>摘要</h3>
-                <p>{noteDetail.summary || '暂无摘要'}</p>
-              </section>
-
-              <section>
-                <h3>要点</h3>
-                <NoteHighlights highlights={noteDetail.highlights} onMetricNavigate={handleMetricClick} />
-              </section>
-
-              <section>
-                <h3>正文</h3>
-                <RichText text={noteDetail.body} onMetricClick={handleMetricClick} />
-              </section>
-
-              <section>
-                <h3>关联指标</h3>
-                <RelatedMetricList
-                  metrics={relatedMetrics}
-                  onMetricNavigate={onMetricNavigate}
-                  noteUpdatedAt={noteDetail.updatedAt}
-                />
-              </section>
-
-              <section>
-                <h3>版本历史</h3>
-                <ul className="history-list">
-                  {noteDetail.revisions?.map((revision) => (
-                    <li key={revision.id}>
-                      <span>版本 v{revision.version}</span>
-                      <span>更新时间：{formatDate(revision.createdAt)}</span>
-                      <span>更新人：{revision.updatedBy}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
+            <div className="note-editor-surface note-inline-surface" role="article">
+              <NoteDetailEditor
+                note={noteDetail}
+                relatedMetrics={relatedMetrics}
+                onMetricNavigate={onMetricNavigate}
+                onSave={handleInlineSave}
+                onDuplicate={handleDuplicate}
+                onDelete={(note) => handleDelete(note)}
+              />
             </div>
           ) : null}
 
           {mode === 'view' && !noteDetail ? <p className="muted">请选择一条笔记</p> : null}
-        </div>
-      </section>
+        </section>
+
+        <aside className="note-inspector" aria-label="属性面板">
+          <div className="inspector-tabs">
+            <button
+              type="button"
+              className={inspectorTab === 'property' ? 'active' : ''}
+              onClick={() => setInspectorTab('property')}
+            >
+              属性
+            </button>
+            <button
+              type="button"
+              className={inspectorTab === 'reference' ? 'active' : ''}
+              onClick={() => setInspectorTab('reference')}
+            >
+              引用
+            </button>
+          </div>
+          <div className="inspector-content">
+            {inspectorTab === 'property' ? (
+              noteDetail ? (
+                <div className="inspector-section">
+                  <div className="inspector-field">
+                    <span className="label">状态</span>
+                    <span className="value badge">草稿</span>
+                  </div>
+                  <div className="inspector-field">
+                    <span className="label">Owner</span>
+                    <span className="value">{noteDetail.owner || '未指定'}</span>
+                  </div>
+                  <div className="inspector-field">
+                    <span className="label">标签</span>
+                    <div className="value tag-list">
+                      {noteDetail.tags?.domain ? <span className="pill">{noteDetail.tags.domain}</span> : null}
+                      {noteDetail.tags?.perspective ? <span className="pill">{noteDetail.tags.perspective}</span> : null}
+                      {noteDetail.tags?.time ? <span className="pill">{noteDetail.tags.time}</span> : null}
+                    </div>
+                  </div>
+                  <div className="inspector-field">
+                    <span className="label">创建时间</span>
+                    <span className="value">{formatDate(noteDetail.createdAt)}</span>
+                  </div>
+                  <div className="inspector-field">
+                    <span className="label">更新时间</span>
+                    <span className="value">{formatDate(noteDetail.updatedAt)}</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="muted">选择笔记以查看属性</p>
+              )
+            ) : null}
+
+            {inspectorTab === 'reference' ? (
+              noteDetail ? (
+                <div className="inspector-section">
+                  <h4>引用指标</h4>
+                  {relatedMetrics.length === 0 ? (
+                    <p className="muted">暂无引用</p>
+                  ) : (
+                    <ul className="inspector-reference-list">
+                      {relatedMetrics.map((metric) => (
+                        <li key={metric.id}>
+                          <button type="button" onClick={() => onMetricNavigate?.(metric.id)}>
+                            <span className="bullet" aria-hidden="true">▸</span>
+                            <span>{metric.name}</span>
+                          </button>
+                          <span className="value muted">{formatDate(metric.updatedAt)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : (
+                <p className="muted">选择笔记以查看引用</p>
+              )
+            ) : null}
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }

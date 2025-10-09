@@ -8,6 +8,7 @@ const {
   getMetricsForNote,
   createNote,
   updateNote,
+  deleteNote,
   listMetrics,
   getMetricById,
   createMetric,
@@ -56,6 +57,14 @@ app.put('/api/notes/:id', (req, res) => {
     return res.status(404).json({ error: 'note not found' });
   }
   res.json(getNoteById(req.params.id));
+});
+
+app.delete('/api/notes/:id', (req, res) => {
+  const deleted = deleteNote(req.params.id);
+  if (!deleted) {
+    return res.status(404).json({ error: 'note not found' });
+  }
+  res.status(204).end();
 });
 
 app.get('/api/notes/:id/history', (req, res) => {

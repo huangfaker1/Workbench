@@ -1,65 +1,51 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-
-function buildHighlightPayload(lines, owner, existing = []) {
-  const items = [];
-  const now = Date.now();
-  lines.forEach((line, index) => {
-    const text = line.trim();
-    if (!text) return;
-    const current = existing[index];
-    if (current) {
-      items.push({ ...current, text });
-    } else {
-      items.push({
-        id: `hl-${now}-${index}`,
-        text,
-        status: 'todo',
-        owner: owner || '未指定',
-        dueDate: null
-      });
-    }
-  });
-  return items;
-}
+import NoteComposer from './editor/NoteComposer';
+import { buildHighlightPayload } from './editor/utils';
 
 function NoteForm({ initialValue, submitLabel, onSubmit, onCancel }) {
   const [title, setTitle] = useState(initialValue.title || '');
   const [summary, setSummary] = useState(initialValue.summary || '');
   const [body, setBody] = useState(initialValue.body || '');
-  const [folderPath, setFolderPath] = useState((initialValue.folderPath || []).join(' / '));
   const [owner, setOwner] = useState(initialValue.owner || '');
-  const [domain, setDomain] = useState(initialValue.tags?.domain || '');
-  const [perspective, setPerspective] = useState(initialValue.tags?.perspective || '');
-  const [timeTag, setTimeTag] = useState(initialValue.tags?.time || '');
   const [highlights, setHighlights] = useState(
     (initialValue.highlights || []).map((item) => item.text).join('\n')
   );
+  const [showAdvanced, setShowAdvanced] = useState(Boolean(summary || highlights));
 
-  const folderDisplay = useMemo(() => folderPath, [folderPath]);
+  const folderPath = initialValue.folderPath || [];
+
+  useEffect(() => {
+    setTitle(initialValue.title || '');
+    setSummary(initialValue.summary || '');
+    setBody(initialValue.body || '');
+    setOwner(initialValue.owner || '');
+    setHighlights((initialValue.highlights || []).map((item) => item.text).join('\n'));
+    setShowAdvanced(Boolean(initialValue.summary || (initialValue.highlights || []).length));
+  }, [initialValue]);
 
   const handleSubmit = (event) => {
     event.preventDefault();
     const cleanOwner = owner || '未指定';
-    const pathArray = folderDisplay
-      ? folderDisplay.split('/').map((part) => part.trim()).filter(Boolean)
-      : [];
+    const pathArray = folderPath.slice();
     const highlightLines = highlights.split('\n');
+    const trimmedBody = body.trim();
+    const firstContentLine = trimmedBody
+      .split('\n')
+      .find((line) => line.trim())
+      ?.trim();
+    const autoSummary = summary.trim() || (firstContentLine ? firstContentLine.slice(0, 120) : '');
     const payload = {
       title,
-      summary,
+      summary: autoSummary,
       body,
       owner: cleanOwner,
       folderPath: pathArray,
-      tags: {
-        domain,
-        perspective,
-        time: timeTag
-      },
+      tags: initialValue.tags || {},
       highlights: buildHighlightPayload(highlightLines, cleanOwner, initialValue.highlights)
     };
 
-    if (!title || !body) {
+    if (!title || !trimmedBody) {
       return;
     }
 
@@ -69,7 +55,7 @@ function NoteForm({ initialValue, submitLabel, onSubmit, onCancel }) {
   return (
     <form className="note-form" onSubmit={handleSubmit}>
       <div className="form-grid">
-        <label>
+        <label className="full-width">
           <span>标题</span>
           <input value={title} onChange={(event) => setTitle(event.target.value)} required />
         </label>
@@ -77,60 +63,49 @@ function NoteForm({ initialValue, submitLabel, onSubmit, onCancel }) {
           <span>Owner</span>
           <input value={owner} onChange={(event) => setOwner(event.target.value)} />
         </label>
-        <label>
-          <span>目录路径</span>
-          <input
-            value={folderDisplay}
-            onChange={(event) => setFolderPath(event.target.value)}
-            placeholder="例：经营策略 / 边缘网络"
-          />
-        </label>
-        <label>
-          <span>领域标签</span>
-          <input value={domain} onChange={(event) => setDomain(event.target.value)} />
-        </label>
-        <label>
-          <span>视角标签</span>
-          <input value={perspective} onChange={(event) => setPerspective(event.target.value)} />
-        </label>
-        <label>
-          <span>时间标签</span>
-          <input value={timeTag} onChange={(event) => setTimeTag(event.target.value)} />
-        </label>
       </div>
 
-      <label>
-        <span>摘要</span>
-        <textarea
-          rows={3}
-          value={summary}
-          onChange={(event) => setSummary(event.target.value)}
-        />
-      </label>
+      <div className="composer-wrapper">
+        <div className="composer-heading">正文</div>
+        <NoteComposer value={body} onChange={(next) => setBody(next || '')} relatedMetrics={[]} />
+      </div>
 
-      <label>
-        <span>要点（换行分隔）</span>
-        <textarea
-          rows={4}
-          value={highlights}
-          onChange={(event) => setHighlights(event.target.value)}
-          placeholder="示例：结合[[单位带宽售卖成本]]设定底价"
-        />
-      </label>
+      <div className={`advanced-panel${showAdvanced ? ' open' : ''}`}>
+        <button
+          type="button"
+          className="link-button"
+          onClick={() => setShowAdvanced((prev) => !prev)}
+        >
+          {showAdvanced ? '隐藏摘要与要点' : '展开摘要与要点（可选）'}
+        </button>
 
-      <label>
-        <span>正文</span>
-        <textarea
-          rows={10}
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-          placeholder="支持 [[指标名称]] 引用"
-          required
-        />
-      </label>
+        {showAdvanced ? (
+          <div className="advanced-fields">
+            <label>
+              <span>摘要</span>
+              <textarea
+                rows={3}
+                value={summary}
+                onChange={(event) => setSummary(event.target.value)}
+                placeholder="可选，留空将自动提取正文首段"
+              />
+            </label>
+
+            <label>
+              <span>要点（换行分隔）</span>
+              <textarea
+                rows={4}
+                value={highlights}
+                onChange={(event) => setHighlights(event.target.value)}
+                placeholder="示例：结合[[单位带宽售卖成本]]设定底价"
+              />
+            </label>
+          </div>
+        ) : null}
+      </div>
 
       <div className="form-actions">
-        <button type="submit" className="primary" disabled={!title || !body}>
+        <button type="submit" className="primary" disabled={!title.trim() || !body.trim()}>
           {submitLabel}
         </button>
         <button type="button" onClick={onCancel}>
