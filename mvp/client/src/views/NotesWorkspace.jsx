@@ -85,8 +85,6 @@ function NotesWorkspace({ onMetricNavigate }) {
   const orderedNotes = useMemo(() => flattenNotes(noteTree), [noteTree]);
 
   const [sidebarSearch, setSidebarSearch] = useState('');
-  const [inspectorTab, setInspectorTab] = useState('property');
-
   const filteredNotes = useMemo(() => {
     const keyword = sidebarSearch.trim().toLowerCase();
     if (!keyword) return orderedNotes;
@@ -146,7 +144,6 @@ function NotesWorkspace({ onMetricNavigate }) {
       setSelectedNoteId(created.id);
       const metricsResponse = await api.getNoteRelatedMetrics(created.id);
       setRelatedMetrics(metricsResponse);
-      setInspectorTab('property');
     } catch (err) {
       alert(err.message);
     }
@@ -185,20 +182,18 @@ function NotesWorkspace({ onMetricNavigate }) {
       setNoteDetail(null);
       setRelatedMetrics([]);
       setMode('view');
-      setInspectorTab('property');
     } catch (err) {
       alert(err.message);
     }
   };
 
-  const handleMetricClick = (metricName) => {
-    if (!onMetricNavigate) return;
-    const matched = relatedMetrics.find((item) => item.name === metricName);
-    if (matched) {
-      onMetricNavigate(matched.id);
-    } else {
-      alert(`未找到指标：${metricName}`);
-    }
+  const handleMetricClick = (metricIdentifier) => {
+    if (!metricIdentifier) return;
+    const key = typeof metricIdentifier === 'string' ? metricIdentifier.trim() : metricIdentifier;
+    if (!key) return;
+    const matched = relatedMetrics.find((item) => item.id === key || item.name === key);
+    const targetId = matched ? matched.id : key;
+    onMetricNavigate?.(targetId);
   };
 
   const handleNoteSelect = (note) => {
@@ -394,7 +389,7 @@ function NotesWorkspace({ onMetricNavigate }) {
               <NoteDetailEditor
                 note={noteDetail}
                 relatedMetrics={relatedMetrics}
-                onMetricNavigate={onMetricNavigate}
+                onMetricNavigate={handleMetricClick}
                 onSave={handleInlineSave}
                 onDuplicate={handleDuplicate}
                 onDelete={(note) => handleDelete(note)}
@@ -406,80 +401,33 @@ function NotesWorkspace({ onMetricNavigate }) {
         </section>
 
         <aside className="note-inspector" aria-label="属性面板">
-          <div className="inspector-tabs">
-            <button
-              type="button"
-              className={inspectorTab === 'property' ? 'active' : ''}
-              onClick={() => setInspectorTab('property')}
-            >
-              属性
-            </button>
-            <button
-              type="button"
-              className={inspectorTab === 'reference' ? 'active' : ''}
-              onClick={() => setInspectorTab('reference')}
-            >
-              引用
-            </button>
-          </div>
           <div className="inspector-content">
-            {inspectorTab === 'property' ? (
-              noteDetail ? (
-                <div className="inspector-section">
-                  <div className="inspector-field">
-                    <span className="label">状态</span>
-                    <span className="value badge">草稿</span>
-                  </div>
-                  <div className="inspector-field">
-                    <span className="label">Owner</span>
-                    <span className="value">{noteDetail.owner || '未指定'}</span>
-                  </div>
-                  <div className="inspector-field">
-                    <span className="label">标签</span>
-                    <div className="value tag-list">
-                      {noteDetail.tags?.domain ? <span className="pill">{noteDetail.tags.domain}</span> : null}
-                      {noteDetail.tags?.perspective ? <span className="pill">{noteDetail.tags.perspective}</span> : null}
-                      {noteDetail.tags?.time ? <span className="pill">{noteDetail.tags.time}</span> : null}
-                    </div>
-                  </div>
-                  <div className="inspector-field">
-                    <span className="label">创建时间</span>
-                    <span className="value">{formatDate(noteDetail.createdAt)}</span>
-                  </div>
-                  <div className="inspector-field">
-                    <span className="label">更新时间</span>
-                    <span className="value">{formatDate(noteDetail.updatedAt)}</span>
+            {noteDetail ? (
+              <div className="inspector-section">
+                <div className="inspector-field">
+                  <span className="label">状态</span>
+                  <span className="value badge">草稿</span>
+                </div>
+                <div className="inspector-field">
+                  <span className="label">标签</span>
+                  <div className="value tag-list">
+                    {noteDetail.tags?.domain ? <span className="pill">{noteDetail.tags.domain}</span> : null}
+                    {noteDetail.tags?.perspective ? <span className="pill">{noteDetail.tags.perspective}</span> : null}
+                    {noteDetail.tags?.time ? <span className="pill">{noteDetail.tags.time}</span> : null}
                   </div>
                 </div>
-              ) : (
-                <p className="muted">选择笔记以查看属性</p>
-              )
-            ) : null}
-
-            {inspectorTab === 'reference' ? (
-              noteDetail ? (
-                <div className="inspector-section">
-                  <h4>引用指标</h4>
-                  {relatedMetrics.length === 0 ? (
-                    <p className="muted">暂无引用</p>
-                  ) : (
-                    <ul className="inspector-reference-list">
-                      {relatedMetrics.map((metric) => (
-                        <li key={metric.id}>
-                          <button type="button" onClick={() => onMetricNavigate?.(metric.id)}>
-                            <span className="bullet" aria-hidden="true">▸</span>
-                            <span>{metric.name}</span>
-                          </button>
-                          <span className="value muted">{formatDate(metric.updatedAt)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                <div className="inspector-field">
+                  <span className="label">创建时间</span>
+                  <span className="value">{formatDate(noteDetail.createdAt)}</span>
                 </div>
-              ) : (
-                <p className="muted">选择笔记以查看引用</p>
-              )
-            ) : null}
+                <div className="inspector-field">
+                  <span className="label">更新时间</span>
+                  <span className="value">{formatDate(noteDetail.updatedAt)}</span>
+                </div>
+              </div>
+            ) : (
+              <p className="muted">选择笔记以查看属性</p>
+            )}
           </div>
         </aside>
       </div>

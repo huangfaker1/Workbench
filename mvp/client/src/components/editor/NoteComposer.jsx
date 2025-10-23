@@ -11,6 +11,8 @@ import Link from '@tiptap/extension-link';
 import Underline from '@tiptap/extension-underline';
 import Highlight from '@tiptap/extension-highlight';
 import HorizontalRule from '@tiptap/extension-horizontal-rule';
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
+import { createLowlight, common } from 'lowlight';
 import { api } from '../../api/client';
 
 const turndownService = new TurndownService({
@@ -36,6 +38,19 @@ const renderMetricTokens = (html) =>
     `<a class=\"metric-token-link\" data-metric-token=\"${escapeHtml(name)}\" href=\"#\">${escapeHtml(name)}</a>`
   );
 
+const lowlight = createLowlight(common);
+
+const EnhancedCodeBlock = CodeBlockLowlight.extend({
+  addKeyboardShortcuts() {
+    return {
+      ...this.parent?.(),
+      'Shift-Enter': () => this.editor.commands.exitCode(),
+      'Mod-Enter': () => this.editor.commands.exitCode(),
+      Escape: () => this.editor.commands.exitCode()
+    };
+  }
+});
+
 const TEMPLATES = [
   {
     id: 'analysis-framework',
@@ -57,51 +72,65 @@ const TEMPLATES = [
   }
 ];
 
-const COMMANDS = (editor, openMetricDialog, insertTemplate) => [
-  {
-    id: 'heading1',
-    name: '转换为标题 1',
-    shortcut: '⌘ + Alt + 1',
-    action: () => editor.chain().focus().toggleHeading({ level: 1 }).run()
-  },
-  {
-    id: 'heading2',
-    name: '转换为标题 2',
-    shortcut: '⌘ + Alt + 2',
-    action: () => editor.chain().focus().toggleHeading({ level: 2 }).run()
-  },
-  {
-    id: 'bullet',
-    name: '无序列表',
-    shortcut: '⌘ + Shift + 8',
-    action: () => editor.chain().focus().toggleBulletList().run()
-  },
-  {
-    id: 'todo',
-    name: '待办清单',
-    action: () => editor.chain().focus().toggleTaskList().run()
-  },
-  {
-    id: 'quote',
-    name: '引用块',
-    action: () => editor.chain().focus().toggleBlockquote().run()
-  },
-  {
-    id: 'code',
-    name: '代码块',
-    action: () => editor.chain().focus().toggleCodeBlock().run()
-  },
-  {
-    id: 'metric',
-    name: '插入指标引用',
-    action: openMetricDialog
-  },
-  ...TEMPLATES.map((template) => ({
-    id: `template-${template.id}`,
-    name: `插入模板：${template.label}`,
-    action: () => insertTemplate(template)
-  }))
-];
+const COMMANDS = (editor, openMetricDialog, insertTemplate) => {
+  const items = [
+    {
+      id: 'heading1',
+      name: '转换为标题 1',
+      shortcut: '⌘ + Alt + 1',
+      action: () => editor.chain().focus().toggleHeading({ level: 1 }).run()
+    },
+    {
+      id: 'heading2',
+      name: '转换为标题 2',
+      shortcut: '⌘ + Alt + 2',
+      action: () => editor.chain().focus().toggleHeading({ level: 2 }).run()
+    },
+    {
+      id: 'bullet',
+      name: '无序列表',
+      shortcut: '⌘ + Shift + 8',
+      action: () => editor.chain().focus().toggleBulletList().run()
+    },
+    {
+      id: 'todo',
+      name: '待办清单',
+      action: () => editor.chain().focus().toggleTaskList().run()
+    },
+    {
+      id: 'quote',
+      name: '引用块',
+      action: () => editor.chain().focus().toggleBlockquote().run()
+    },
+    {
+      id: 'code',
+      name: '代码块',
+      action: () => editor.chain().focus().toggleCodeBlock().run()
+    },
+    {
+      id: 'metric',
+      name: '插入指标引用',
+      action: openMetricDialog
+    },
+    ...TEMPLATES.map((template) => ({
+      id: `template-${template.id}`,
+      name: `插入模板：${template.label}`,
+      action: () => insertTemplate(template)
+    }))
+  ];
+
+  if (editor.isActive('codeBlock')) {
+    const metricIndex = items.findIndex((item) => item.id === 'metric');
+    const insertIndex = metricIndex === -1 ? items.length : metricIndex;
+    items.splice(insertIndex, 0, {
+      id: 'exit-code',
+      name: '退出代码块 (Shift+Enter)',
+      action: () => editor.chain().focus().exitCode().run()
+    });
+  }
+
+  return items;
+};
 
 const markdownToHtml = (markdown) => {
   if (!markdown) return '';
@@ -396,10 +425,18 @@ function NoteComposer({ value, onChange, relatedMetrics, onMetricNavigate }) {
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
-        horizontalRule: false
+        horizontalRule: false,
+        codeBlock: false
       }),
       Placeholder.configure({
         placeholder: '输入正文，使用 / 快速插入模块，[[ 引用指标'
+      }),
+      EnhancedCodeBlock.configure({
+        lowlight,
+        defaultLanguage: 'plaintext',
+        HTMLAttributes: {
+          class: 'code-block'
+        }
       }),
       TaskList,
       TaskItem.configure({ nested: true }),
@@ -557,6 +594,13 @@ function NoteComposer({ value, onChange, relatedMetrics, onMetricNavigate }) {
             isActive={editor.isActive('codeBlock')}
             onClick={() => editor.chain().focus().toggleCodeBlock().run()}
           />
+          {editor.isActive('codeBlock') ? (
+            <ToolbarButton
+              label="退出代码块 (Shift+Enter)"
+              icon="⎋"
+              onClick={() => editor.chain().focus().exitCode().run()}
+            />
+          ) : null}
           <ToolbarButton
             label="分割线"
             icon="―"

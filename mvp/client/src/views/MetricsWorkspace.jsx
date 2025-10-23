@@ -172,10 +172,6 @@ function MetricsWorkspace({ initialMetricId, onMetricNavigate }) {
   const detailCacheRef = useRef(new Map());
   const [graphData, setGraphData] = useState(null);
   const [graphLoading, setGraphLoading] = useState(false);
-  const [graphPaneWidth, setGraphPaneWidth] = useState(640);
-  const contentRef = useRef(null);
-  const isResizingRef = useRef(false);
-  const showGraphPane = mode === 'view' && !!metricDetail;
 
   const metrics = metricsData || [];
 
@@ -187,6 +183,8 @@ function MetricsWorkspace({ initialMetricId, onMetricNavigate }) {
     });
     return map;
   }, [metrics]);
+
+  const activeCategoryPath = metricDetail?.categoryPath || [];
 
   useEffect(() => {
     if (initialMetricId) {
@@ -327,53 +325,6 @@ useEffect(() => {
     setMode('view');
     setSelectedMetricId(metricId);
   };
-
-  const handlePointerMove = useCallback((event) => {
-    if (!isResizingRef.current || !contentRef.current) return;
-    const rect = contentRef.current.getBoundingClientRect();
-    const minGraphWidth = 420;
-    const minMainWidth = 520;
-    const maxGraphWidth = Math.max(minGraphWidth, rect.width - minMainWidth);
-    const rawWidth = rect.right - event.clientX;
-    const clampedWidth = Math.min(Math.max(rawWidth, minGraphWidth), maxGraphWidth);
-    setGraphPaneWidth(clampedWidth);
-  }, []);
-
-  const stopResizing = useCallback(() => {
-    if (!isResizingRef.current) return;
-    isResizingRef.current = false;
-    document.removeEventListener('pointermove', handlePointerMove);
-    document.removeEventListener('pointerup', stopResizing);
-  }, [handlePointerMove]);
-
-  const startResizing = useCallback((event) => {
-    if (!showGraphPane) return;
-    isResizingRef.current = true;
-    document.addEventListener('pointermove', handlePointerMove);
-    document.addEventListener('pointerup', stopResizing);
-    event.preventDefault();
-  }, [handlePointerMove, stopResizing, showGraphPane]);
-
-  useEffect(() => () => stopResizing(), [stopResizing]);
-
-  useEffect(() => {
-    if (!showGraphPane) {
-      stopResizing();
-    }
-  }, [showGraphPane, stopResizing]);
-
-  useEffect(() => {
-    if (!showGraphPane) return;
-    if (!contentRef.current) return;
-    const rect = contentRef.current.getBoundingClientRect();
-    const minGraphWidth = 420;
-    const minMainWidth = 520;
-    const maxGraphWidth = Math.max(minGraphWidth, rect.width - minMainWidth);
-    setGraphPaneWidth((prev) => {
-      const clamped = Math.min(Math.max(prev, minGraphWidth), maxGraphWidth);
-      return Number.isFinite(clamped) ? clamped : prev;
-    });
-  }, [showGraphPane, metrics.length]);
 
   const resolveSummary = useCallback(
     (key) => {
@@ -611,6 +562,174 @@ useEffect(() => {
     [loadMetricDetail, resolveSummary, mapOperatorSymbol, normalizeFormula]
   );
 
+  const renderDrawerContent = () => {
+    if (mode === 'create') {
+      return (
+        <div className="card metric-drawer-card">
+          <header className="card-header">
+            <h2>新建指标</h2>
+          </header>
+          <MetricForm
+            includeVersion
+            initialValue={{
+              status: 'draft',
+              refreshFrequency: 'monthly',
+              domainTags: [],
+              categoryPath: activeCategoryPath,
+              segments: [],
+              aliases: [],
+              applicability: '',
+              lifecycleStage: '',
+              perspective: '',
+              dataOwner: '',
+              templateId: ''
+            }}
+            availableMetrics={metrics}
+            currentMetricId={null}
+            onSubmit={handleCreateMetric}
+            onCancel={() => setMode('view')}
+            submitLabel="创建并发布"
+          />
+        </div>
+      );
+    }
+
+    if (mode === 'edit' && metricDetail) {
+      return (
+        <div className="card metric-drawer-card">
+          <header className="card-header">
+            <h2>编辑指标</h2>
+          </header>
+          <MetricForm
+            initialValue={metricDetail}
+            availableMetrics={metrics}
+            currentMetricId={metricDetail?.id}
+            onSubmit={handleUpdateMetric}
+            onCancel={() => setMode('view')}
+            submitLabel="保存"
+            disableName
+          />
+        </div>
+      );
+    }
+
+    if (mode === 'newVersion' && metricDetail) {
+      return (
+        <div className="card metric-drawer-card">
+          <header className="card-header">
+            <h2>发布新版本</h2>
+          </header>
+          <MetricForm
+            includeVersion
+            initialValue={newVersionInitial}
+            availableMetrics={metrics}
+            currentMetricId={metricDetail.id}
+            onSubmit={handlePublishVersion}
+            onCancel={() => setMode('view')}
+            submitLabel="发布"
+            disableName
+          />
+        </div>
+      );
+    }
+
+    if (metricDetail) {
+      return (
+        <div className="card metric-detail-card metric-drawer-card">
+          <header className="card-header">
+            <div>
+              <h2>{metricDetail.name}</h2>
+              <p className="muted">
+                Owner：{metricDetail.owner || '未指定'} · 状态：{metricDetail.status} · 刷新频率：{metricDetail.refreshFrequency}
+              </p>
+              <div className="metric-tags">
+                {metricDetail.domainTags?.map((tag) => (
+                  <span key={tag} className="tag">{tag}</span>
+                ))}
+              </div>
+            </div>
+            <div className="card-actions">
+              <button type="button" onClick={() => setMode('edit')}>
+                编辑
+              </button>
+              <button type="button" onClick={() => setMode('newVersion')}>
+                发布新版本
+              </button>
+            </div>
+          </header>
+
+          <section>
+            <h3>当前版本</h3>
+            {currentVersion ? (
+              <div className="version-block">
+                <p>版本号：{currentVersion.version}</p>
+                <p>来源：{currentVersion.source}</p>
+                <p>定义：{currentVersion.definition}</p>
+                <p>公式：{currentVersion.formula}</p>
+                <p>血缘说明：{currentVersion.lineageNotes || '—'}</p>
+                <p>发布时间：{formatDate(currentVersion.createdAt)} · 发布人：{currentVersion.createdBy}</p>
+                <h4>约束</h4>
+                <ul>
+                  {currentVersion.constraints?.length
+                    ? currentVersion.constraints.map((constraint, index) => (
+                        <li key={`${constraint}-${index}`}>{constraint}</li>
+                      ))
+                    : <li>无</li>}
+                </ul>
+                <h4>依赖</h4>
+                <DependencyList
+                  dependencies={currentVersion.dependencies}
+                  metricsIndex={metricsIndex}
+                  onNavigate={(id) => handoffNavigate(id)}
+                />
+              </div>
+            ) : (
+              <p className="muted">尚未发布版本</p>
+            )}
+          </section>
+
+          <section>
+            <h3>版本历史</h3>
+            <ul className="history-list">
+              {metricDetail.versions?.map((version) => (
+                <li key={version.id}>
+                  <span>版本 {version.version}</span>
+                  <span>发布人：{version.createdBy}</span>
+                  <span>发布时间：{formatDate(version.createdAt)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section>
+            <h3>变更登记</h3>
+            <ul className="history-list">
+              {metricDetail.changeLogs?.map((log) => (
+                <li key={log.id}>
+                  <span>
+                    {log.versionFrom ? `${log.versionFrom} → ${log.versionTo}` : `创建为 ${log.versionTo}`}
+                  </span>
+                  <span>{log.description}</span>
+                  <span>记录人：{log.createdBy}</span>
+                  <span>时间：{formatDate(log.createdAt)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section>
+            <h3>被引用的笔记</h3>
+            <LinkedNoteList notes={metricDetail.linkedNotes} />
+          </section>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  const drawerContent = renderDrawerContent();
+
   useEffect(() => {
     if (!metricDetail) {
       setGraphData(null);
@@ -640,6 +759,13 @@ useEffect(() => {
       cancelled = true;
     };
   }, [metricDetail, buildNode]);
+
+  const drawerNode = drawerContent || (
+    <div className="card metric-drawer-card drawer-empty">
+      <h2>指标详情</h2>
+      <p className="muted">在左侧选择一个指标，或点击上方“新建指标”。</p>
+    </div>
+  );
 
   return (
     <div className="workspace metrics-workspace">
@@ -674,198 +800,25 @@ useEffect(() => {
         </ul>
       </aside>
 
-      <section
-        ref={contentRef}
-        className="content"
-        style={{ gridTemplateColumns: showGraphPane ? `minmax(0, 1fr) 8px ${graphPaneWidth}px` : '1fr' }}
-      >
-        <div className="content-main">
-          {mode === 'create' ? (
-          <div className="card">
-            <header className="card-header">
-              <h2>新建指标</h2>
-            </header>
-            <MetricForm
-              includeVersion
-              initialValue={{
-                status: 'draft',
-                refreshFrequency: 'monthly',
-                domainTags: [],
-                categoryPath: activeCategoryPath,
-                segments: [],
-                aliases: [],
-                applicability: '',
-                lifecycleStage: '',
-                perspective: '',
-                dataOwner: '',
-                templateId: ''
+      <section className="graph-stage">
+        <div className="graph-wrapper">
+          <div className="card metric-graph-card">
+            <MetricDependencyGraph
+              graph={graphData}
+              loading={graphLoading}
+              onSelect={(metricId) => {
+                if (metricId && metricId !== metricDetail?.id) {
+                  handoffNavigate(metricId);
+                }
               }}
-              availableMetrics={metrics}
-              currentMetricId={null}
-              onSubmit={handleCreateMetric}
-              onCancel={() => setMode('view')}
-              submitLabel="创建并发布"
             />
           </div>
-          ) : null}
-
-          {mode === 'edit' && metricDetail ? (
-            <div className="card">
-              <header className="card-header">
-                <h2>编辑指标</h2>
-              </header>
-            <MetricForm
-              initialValue={metricDetail}
-              availableMetrics={metrics}
-              currentMetricId={metricDetail?.id}
-              onSubmit={handleUpdateMetric}
-              onCancel={() => setMode('view')}
-              submitLabel="保存"
-              disableName
-            />
-            </div>
-          ) : null}
-
-          {mode === 'newVersion' && metricDetail ? (
-            <div className="card">
-              <header className="card-header">
-                <h2>发布新版本</h2>
-              </header>
-            <MetricForm
-              includeVersion
-              initialValue={newVersionInitial}
-              availableMetrics={metrics}
-              currentMetricId={metricDetail.id}
-              onSubmit={handlePublishVersion}
-              onCancel={() => setMode('view')}
-              submitLabel="发布"
-              disableName
-            />
-            </div>
-          ) : null}
-
-          {mode === 'view' && metricDetail ? (
-            <div className="card metric-detail-card">
-              <header className="card-header">
-                <div>
-                  <h2>{metricDetail.name}</h2>
-                  <p className="muted">
-                    Owner：{metricDetail.owner || '未指定'} · 状态：{metricDetail.status} · 刷新频率：{metricDetail.refreshFrequency}
-                  </p>
-                  <div className="metric-tags">
-                    {metricDetail.domainTags?.map((tag) => (
-                      <span key={tag} className="tag">{tag}</span>
-                    ))}
-                  </div>
-                </div>
-                <div className="card-actions">
-                  <button type="button" onClick={() => setMode('edit')}>
-                    编辑
-                  </button>
-                  <button type="button" onClick={() => setMode('newVersion')}>
-                    发布新版本
-                  </button>
-                </div>
-              </header>
-
-              <section>
-                <h3>当前版本</h3>
-                {currentVersion ? (
-                  <div className="version-block">
-                    <p>版本号：{currentVersion.version}</p>
-                    <p>来源：{currentVersion.source}</p>
-                    <p>定义：{currentVersion.definition}</p>
-                    <p>公式：{currentVersion.formula}</p>
-                    <p>血缘说明：{currentVersion.lineageNotes || '—'}</p>
-                    <p>发布时间：{formatDate(currentVersion.createdAt)} · 发布人：{currentVersion.createdBy}</p>
-                    <h4>约束</h4>
-                    <ul>
-                      {currentVersion.constraints?.length
-                        ? currentVersion.constraints.map((constraint, index) => (
-                            <li key={`${constraint}-${index}`}>{constraint}</li>
-                          ))
-                        : <li>无</li>}
-                    </ul>
-                    <h4>依赖</h4>
-                    <DependencyList
-                      dependencies={currentVersion.dependencies}
-                      metricsIndex={metricsIndex}
-                      onNavigate={(id) => handoffNavigate(id)}
-                    />
-                  </div>
-                ) : (
-                  <p className="muted">尚未发布版本</p>
-                )}
-              </section>
-
-              <section>
-                <h3>版本历史</h3>
-                <ul className="history-list">
-                  {metricDetail.versions?.map((version) => (
-                    <li key={version.id}>
-                      <span>版本 {version.version}</span>
-                      <span>发布人：{version.createdBy}</span>
-                      <span>发布时间：{formatDate(version.createdAt)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-
-              <section>
-                <h3>变更登记</h3>
-                <ul className="history-list">
-                  {metricDetail.changeLogs?.map((log) => (
-                    <li key={log.id}>
-                      <span>
-                        {log.versionFrom ? `${log.versionFrom} → ${log.versionTo}` : `创建为 ${log.versionTo}`}
-                      </span>
-                      <span>{log.description}</span>
-                      <span>记录人：{log.createdBy}</span>
-                      <span>时间：{formatDate(log.createdAt)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-
-              <section>
-                <h3>被引用的笔记</h3>
-                <LinkedNoteList notes={metricDetail.linkedNotes} />
-              </section>
-            </div>
-          ) : null}
-
-          {mode === 'view' && !metricDetail ? <p className="muted">请选择一个指标</p> : null}
         </div>
-
-        {showGraphPane ? (
-          <>
-            <div
-              className="graph-resizer"
-              onPointerDown={startResizing}
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="调整血缘图宽度"
-            />
-          <aside className="graph-pane" style={{ width: graphPaneWidth }}>
-            <div className="card metric-graph-card">
-              <div className="metric-graph-header">
-                <h3>血缘结构图</h3>
-                <p className="muted">自动解析公式并呈现依赖链路</p>
-              </div>
-              <MetricDependencyGraph
-                graph={graphData}
-                loading={graphLoading}
-                onSelect={(metricId) => {
-                  if (metricId && metricId !== metricDetail.id) {
-                    handoffNavigate(metricId);
-                  }
-                }}
-              />
-            </div>
-          </aside>
-          </>
-        ) : null}
       </section>
+
+      <aside className={`detail-drawer${drawerContent ? '' : ' collapsed'}`}>
+        {drawerNode}
+      </aside>
     </div>
   );
 }

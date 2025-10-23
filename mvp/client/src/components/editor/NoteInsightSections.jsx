@@ -39,7 +39,7 @@ NoteHighlightsSection.defaultProps = {
   onMetricNavigate: undefined
 };
 
-export function RelatedMetricList({ metrics, onMetricNavigate, noteUpdatedAt }) {
+export function RelatedMetricList({ metrics, onMetricNavigate, noteUpdatedAt, activeMetricId }) {
   if (!metrics || metrics.length === 0) {
     return <p className="muted">暂无关联指标</p>;
   }
@@ -48,8 +48,10 @@ export function RelatedMetricList({ metrics, onMetricNavigate, noteUpdatedAt }) 
     <ul className="metric-summary-list">
       {metrics.map((metric) => {
         const isOutdated = noteUpdatedAt && metric.updatedAt && new Date(metric.updatedAt) > new Date(noteUpdatedAt);
+        const isActive = activeMetricId === metric.id;
+        const itemClass = [isOutdated ? 'outdated' : '', isActive ? 'active' : ''].filter(Boolean).join(' ').trim();
         return (
-          <li key={metric.id} className={isOutdated ? 'outdated' : ''}>
+          <li key={metric.id} className={itemClass}>
             <div>
               <button type="button" className="link-button" onClick={() => onMetricNavigate?.(metric.id)}>
                 {metric.name}
@@ -76,11 +78,13 @@ RelatedMetricList.propTypes = {
     })
   ),
   onMetricNavigate: PropTypes.func,
-  noteUpdatedAt: PropTypes.string
+  noteUpdatedAt: PropTypes.string,
+  activeMetricId: PropTypes.string
 };
 
 RelatedMetricList.defaultProps = {
   metrics: [],
   onMetricNavigate: undefined,
-  noteUpdatedAt: ''
+  noteUpdatedAt: '',
+  activeMetricId: undefined
 };

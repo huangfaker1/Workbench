@@ -7,7 +7,6 @@ function NoteForm({ initialValue, submitLabel, onSubmit, onCancel }) {
   const [title, setTitle] = useState(initialValue.title || '');
   const [summary, setSummary] = useState(initialValue.summary || '');
   const [body, setBody] = useState(initialValue.body || '');
-  const [owner, setOwner] = useState(initialValue.owner || '');
   const [highlights, setHighlights] = useState(
     (initialValue.highlights || []).map((item) => item.text).join('\n')
   );
@@ -19,14 +18,13 @@ function NoteForm({ initialValue, submitLabel, onSubmit, onCancel }) {
     setTitle(initialValue.title || '');
     setSummary(initialValue.summary || '');
     setBody(initialValue.body || '');
-    setOwner(initialValue.owner || '');
     setHighlights((initialValue.highlights || []).map((item) => item.text).join('\n'));
     setShowAdvanced(Boolean(initialValue.summary || (initialValue.highlights || []).length));
   }, [initialValue]);
 
   const handleSubmit = (event) => {
     event.preventDefault();
-    const cleanOwner = owner || '未指定';
+    const owner = initialValue.owner || '未指定';
     const pathArray = folderPath.slice();
     const highlightLines = highlights.split('\n');
     const trimmedBody = body.trim();
@@ -39,10 +37,10 @@ function NoteForm({ initialValue, submitLabel, onSubmit, onCancel }) {
       title,
       summary: autoSummary,
       body,
-      owner: cleanOwner,
+      owner,
       folderPath: pathArray,
       tags: initialValue.tags || {},
-      highlights: buildHighlightPayload(highlightLines, cleanOwner, initialValue.highlights)
+      highlights: buildHighlightPayload(highlightLines, owner, initialValue.highlights)
     };
 
     if (!title || !trimmedBody) {
@@ -58,10 +56,6 @@ function NoteForm({ initialValue, submitLabel, onSubmit, onCancel }) {
         <label className="full-width">
           <span>标题</span>
           <input value={title} onChange={(event) => setTitle(event.target.value)} required />
-        </label>
-        <label>
-          <span>Owner</span>
-          <input value={owner} onChange={(event) => setOwner(event.target.value)} />
         </label>
       </div>
 

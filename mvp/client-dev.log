@@ -1,0 +1,80 @@
+
+> client@0.0.0 dev
+> vite --host 0.0.0.0
+
+
+  VITE v7.1.7  ready in 188 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://192.168.3.103:5173/
+11:16:09 AM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+11:16:29 AM [vite] (client) hmr update /src/App.css
+11:19:38 AM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+11:19:46 AM [vite] (client) hmr update /src/App.css
+11:23:57 AM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+11:24:50 AM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+11:24:58 AM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+11:25:16 AM [vite] (client) hmr update /src/App.css
+1:50:47 PM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+1:51:22 PM [vite] (client) hmr update /src/App.css
+1:51:42 PM [vite] (client) hmr update /src/App.css
+4:37:04 PM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+4:37:15 PM [vite] (client) hmr update /src/App.css
+4:41:40 PM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+4:43:49 PM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+4:44:04 PM [vite] (client) hmr update /src/App.css
+4:45:38 PM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+4:45:49 PM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+4:46:02 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+4:46:20 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+4:47:40 PM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+4:47:49 PM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+4:47:56 PM [vite] (client) hmr update /src/App.css
+4:48:03 PM [vite] (client) hmr update /src/App.css
+4:53:09 PM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+4:53:20 PM [vite] (client) hmr update /src/App.css
+4:55:07 PM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+4:56:24 PM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+4:56:32 PM [vite] (client) hmr update /src/App.css
+10:34:59 PM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+10:35:09 PM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+10:35:31 PM [vite] (client) hmr update /src/App.css
+10:39:49 PM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+10:40:35 PM [vite] (client) hmr update /src/components/MetricDependencyGraph.jsx
+11:03:13 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+11:03:24 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+11:03:41 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+11:03:56 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+11:05:01 PM [vite] (client) hmr update /src/App.css
+11:05:36 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+11:06:38 PM [vite] (client) hmr update /src/App.css
+11:47:15 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+11:48:18 PM [vite] (client) hmr update /src/App.css
+11:48:36 PM [vite] (client) hmr update /src/App.css
+11:48:52 PM [vite] (client) hmr update /src/App.css
+11:49:04 PM [vite] (client) hmr update /src/App.css
+11:50:26 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+11:50:44 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+11:51:23 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+11:51:42 PM [vite] (client) hmr update /src/App.css
+11:52:12 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+11:52:27 PM [vite] (client) hmr update /src/App.css
+11:53:26 PM [vite] (client) hmr update /src/App.css
+11:54:41 PM [vite] (client) hmr update /src/App.css
+11:55:00 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+11:55:50 PM [vite] (client) hmr update /src/App.css
+10:06:34 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+10:13:08 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+10:13:08 PM [vite] (client) Pre-transform error: Failed to load url /src/views/MetricsWorkspace.jsx (resolved id: /Users/huanglin/Workbench/mvp/client/src/views/MetricsWorkspace.jsx) in /Users/huanglin/Workbench/mvp/client/src/App.jsx. Does the file exist?
+10:13:41 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+10:14:11 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+10:15:20 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+10:16:05 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+10:18:31 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+10:19:52 PM [vite] (client) hmr update /src/App.css
+10:21:23 PM [vite] (client) hmr update /src/App.css
+10:23:07 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
+10:24:08 PM [vite] (client) hmr update /src/App.css
+10:24:25 PM [vite] (client) hmr update /src/App.css
+10:24:37 PM [vite] (client) hmr update /src/App.css
+10:25:14 PM [vite] (client) hmr update /src/views/MetricsWorkspace.jsx
