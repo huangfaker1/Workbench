@@ -221,19 +221,34 @@ function NotesWorkspace({ onMetricNavigate }) {
   const handleInlineSave = async (payload) => {
     if (!payload?.id) return;
     const { id, ...rest } = payload;
+
+    let updated;
     try {
-      const updated = await api.updateNote(id, { ...rest, updatedBy: rest.owner });
-      const updatedList = await reloadNotes();
-      if (updatedList) {
-        setData(updatedList);
-      }
-      setNoteDetail(updated);
-      const metricsResponse = await api.getNoteRelatedMetrics(updated.id);
-      setRelatedMetrics(metricsResponse);
+      updated = await api.updateNote(id, { ...rest, updatedBy: rest.owner });
     } catch (error) {
       console.error(error);
       throw error;
     }
+
+    setNoteDetail(updated);
+
+    try {
+      const updatedList = await reloadNotes();
+      if (updatedList) {
+        setData(updatedList);
+      }
+    } catch (error) {
+      console.error('Failed to refresh notes list', error);
+    }
+
+    try {
+      const metricsResponse = await api.getNoteRelatedMetrics(updated.id);
+      setRelatedMetrics(metricsResponse);
+    } catch (error) {
+      console.error('Failed to refresh related metrics', error);
+    }
+
+    return updated;
   };
 
   const handleDuplicate = (source) => {
