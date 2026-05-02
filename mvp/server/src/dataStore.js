@@ -9,6 +9,12 @@ const metricLinkedNotes = new Map(); // metricId -> Set(noteId)
 
 const metricNameToId = new Map();
 
+// Decision system storage
+const decisions = [];
+const anomalies = [];
+const scenarios = [];
+const decisionActionItems = new Map(); // decisionId -> ActionItem[]
+
 const METRIC_TOKEN_PATTERN = /\[\[([^\]]+)\]\]/g;
 
 function registerMetric(metric) {
@@ -88,6 +94,464 @@ function addMetricVersion(metricId, versionPayload) {
   const metric = metrics.find((m) => m.id === metricId);
   metric.currentVersionId = versionRecord.id;
   metric.updatedAt = versionRecord.createdAt;
+}
+
+// ─── Decision System Helpers ────────────────────────────────────────────
+
+function buildReverseDependencyIndex() {
+  // childMetricId -> Set<parentMetricId> (metrics that depend on child)
+  const reverseIndex = new Map();
+  metricVersions.forEach((versionsList, metricId) => {
+    versionsList.forEach((version) => {
+      (version.dependencies || []).forEach((depId) => {
+        if (!depId) return;
+        if (!reverseIndex.has(depId)) {
+          reverseIndex.set(depId, new Set());
+        }
+        reverseIndex.get(depId).add(metricId);
+      });
+    });
+  });
+  return reverseIndex;
+}
+
+function collectUpstreamMetrics(metricId, visited = new Set()) {
+  // Trace upstream dependencies to find root causes
+  if (visited.has(metricId)) return [];
+  visited.add(metricId);
+  const upstream = [];
+  const versions = metricVersions.get(metricId) || [];
+  const currentVersion = versions.find((v) => v.id === metrics.find((m) => m.id === metricId)?.currentVersionId) || versions[versions.length - 1];
+  (currentVersion?.dependencies || []).forEach((depId) => {
+    if (depId && !visited.has(depId)) {
+      upstream.push(depId);
+      upstream.push(...collectUpstreamMetrics(depId, visited));
+    }
+  });
+  return upstream;
+}
+
+function collectDownstreamMetrics(metricId, visited = new Set()) {
+  // Trace downstream to find impacted metrics
+  if (visited.has(metricId)) return [];
+  visited.add(metricId);
+  const downstream = [];
+  const reverseIndex = buildReverseDependencyIndex();
+  const parents = reverseIndex.get(metricId);
+  if (parents) {
+    parents.forEach((parentId) => {
+      if (!visited.has(parentId)) {
+        downstream.push(parentId);
+        downstream.push(...collectDownstreamMetrics(parentId, visited));
+      }
+    });
+  }
+  return downstream;
+}
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function evaluateFormula(formula, valueMap) {
+  // Token replacement: [[MetricName]] → numeric value
+  let expression = formula || '';
+  for (const [name, value] of Object.entries(valueMap)) {
+    const tokenPattern = new RegExp(`\\[\\[\\s*${escapeRegex(name)}\\s*\\]\\]`, 'g');
+    expression = expression.replace(tokenPattern, `(${value ?? 0})`);
+  }
+  // Clean: keep only digits, +, -, *, /, ., (, ), space
+  expression = expression.replace(/[^0-9+\-*/.() ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!expression) return null;
+  try {
+    const result = new Function(`return (${expression})`)();
+    return isFinite(result) ? Math.round(result * 10000) / 10000 : null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Decision CRUD ──────────────────────────────────────────────────────
+
+function listDecisions(filters) {
+  let result = decisions.map((d) => ({ ...d }));
+  if (filters?.status) {
+    result = result.filter((d) => d.status === filters.status);
+  }
+  if (filters?.priority) {
+    result = result.filter((d) => d.priority === filters.priority);
+  }
+  return result;
+}
+
+function getDecisionById(id) {
+  const decision = decisions.find((d) => d.id === id);
+  if (!decision) return null;
+  return {
+    ...decision,
+    actionItems: (decisionActionItems.get(id) || []).map((a) => ({ ...a }))
+  };
+}
+
+function createDecision(payload) {
+  const now = new Date().toISOString();
+  const decision = {
+    id: payload.id || uuid(),
+    title: payload.title || '',
+    summary: payload.summary || '',
+    context: payload.context || '',
+    status: payload.status || 'draft',
+    priority: payload.priority || 'medium',
+    owner: payload.owner || '未指定',
+    decision: payload.decision || '',
+    expectedImpact: payload.expectedImpact || '',
+    linkedMetricIds: Array.isArray(payload.linkedMetricIds) ? payload.linkedMetricIds : [],
+    linkedAnomalyIds: Array.isArray(payload.linkedAnomalyIds) ? payload.linkedAnomalyIds : [],
+    linkedScenarioId: payload.linkedScenarioId || null,
+    createdAt: now,
+    updatedAt: now
+  };
+  decisions.push(decision);
+  return getDecisionById(decision.id);
+}
+
+function updateDecision(id, payload) {
+  const decision = decisions.find((d) => d.id === id);
+  if (!decision) return null;
+  Object.keys(payload).forEach((key) => {
+    if (key === 'id' || key === 'createdAt') return;
+    if (payload[key] !== undefined) {
+      decision[key] = payload[key];
+    }
+  });
+  decision.updatedAt = new Date().toISOString();
+  return getDecisionById(id);
+}
+
+function deleteDecision(id) {
+  const index = decisions.findIndex((d) => d.id === id);
+  if (index === -1) return false;
+  decisions.splice(index, 1);
+  decisionActionItems.delete(id);
+  return true;
+}
+
+// ─── Action Item CRUD ───────────────────────────────────────────────────
+
+function listActionsForDecision(decisionId) {
+  return (decisionActionItems.get(decisionId) || []).map((a) => ({ ...a }));
+}
+
+function listAllActions(filters) {
+  const all = [];
+  decisionActionItems.forEach((items) => {
+    items.forEach((item) => all.push({ ...item }));
+  });
+  let result = all.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  if (filters?.status) {
+    result = result.filter((a) => a.status === filters.status);
+  }
+  if (filters?.owner) {
+    result = result.filter((a) => a.owner === filters.owner);
+  }
+  return result;
+}
+
+function createActionItem(decisionId, payload) {
+  if (!decisionId) return null;
+  if (!decisionActionItems.has(decisionId)) {
+    decisionActionItems.set(decisionId, []);
+  }
+  const now = new Date().toISOString();
+  const action = {
+    id: payload.id || uuid(),
+    decisionId,
+    description: payload.description || '',
+    owner: payload.owner || '未指定',
+    dueDate: payload.dueDate || null,
+    status: payload.status || 'open',
+    metricId: payload.metricId || null,
+    createdAt: now,
+    updatedAt: now
+  };
+  decisionActionItems.get(decisionId).push(action);
+  return { ...action };
+}
+
+function updateActionItem(id, payload) {
+  let found = null;
+  decisionActionItems.forEach((items) => {
+    const item = items.find((a) => a.id === id);
+    if (item) found = item;
+  });
+  if (!found) return null;
+  Object.keys(payload).forEach((key) => {
+    if (key === 'id' || key === 'createdAt' || key === 'decisionId') return;
+    if (payload[key] !== undefined) {
+      found[key] = payload[key];
+    }
+  });
+  found.updatedAt = new Date().toISOString();
+  return { ...found };
+}
+
+function deleteActionItem(id) {
+  let found = false;
+  decisionActionItems.forEach((items, key) => {
+    const index = items.findIndex((a) => a.id === id);
+    if (index !== -1) {
+      items.splice(index, 1);
+      found = true;
+    }
+  });
+  return found;
+}
+
+// ─── Anomaly CRUD ───────────────────────────────────────────────────────
+
+function listAnomalies(filters) {
+  let result = anomalies.map((a) => ({ ...a }));
+  if (filters?.status) {
+    const statuses = filters.status.split(',').map((s) => s.trim());
+    result = result.filter((a) => statuses.includes(a.status));
+  }
+  if (filters?.severity) {
+    result = result.filter((a) => a.severity === filters.severity);
+  }
+  if (filters?.metricId) {
+    result = result.filter((a) => a.metricId === filters.metricId);
+  }
+  return result;
+}
+
+function getAnomalyById(id) {
+  const anomaly = anomalies.find((a) => a.id === id);
+  if (!anomaly) return null;
+  return { ...anomaly };
+}
+
+function createAnomaly(payload) {
+  const now = new Date().toISOString();
+  const anomaly = {
+    id: payload.id || uuid(),
+    metricId: payload.metricId || '',
+    metricName: payload.metricName || '',
+    currentValue: payload.currentValue != null ? payload.currentValue : null,
+    expectedValue: payload.expectedValue != null ? payload.expectedValue : null,
+    deviation: payload.deviation != null ? payload.deviation : null,
+    severity: payload.severity || 'medium',
+    status: payload.status || 'open',
+    rootCauseMetricIds: [],
+    impactMetricIds: [],
+    description: payload.description || '',
+    resolver: null,
+    resolvedAt: null,
+    detectedAt: now
+  };
+  anomalies.push(anomaly);
+  return { ...anomaly };
+}
+
+function updateAnomaly(id, payload) {
+  const anomaly = anomalies.find((a) => a.id === id);
+  if (!anomaly) return null;
+  Object.keys(payload).forEach((key) => {
+    if (key === 'id' || key === 'detectedAt') return;
+    if (payload[key] !== undefined) {
+      anomaly[key] = payload[key];
+    }
+  });
+  if (payload.status === 'resolved') {
+    anomaly.resolvedAt = new Date().toISOString();
+  }
+  return { ...anomaly };
+}
+
+function traceAnomaly(anomalyId) {
+  const anomaly = anomalies.find((a) => a.id === anomalyId);
+  if (!anomaly) return null;
+  const metricId = anomaly.metricId;
+  if (!metricId) {
+    return { ...anomaly, rootCauseMetricIds: [], impactMetricIds: [] };
+  }
+  const upstream = collectUpstreamMetrics(metricId);
+  const downstream = collectDownstreamMetrics(metricId);
+  anomaly.rootCauseMetricIds = upstream;
+  anomaly.impactMetricIds = downstream;
+  return { ...anomaly };
+}
+
+// ─── Scenario CRUD ──────────────────────────────────────────────────────
+
+function listScenarios() {
+  return scenarios.map((s) => ({ ...s }));
+}
+
+function getScenarioById(id) {
+  const scenario = scenarios.find((s) => s.id === id);
+  if (!scenario) return null;
+  return { ...scenario, adjustments: (scenario.adjustments || []).map((a) => ({ ...a })), results: (scenario.results || []).map((r) => ({ ...r })) };
+}
+
+function createScenario(payload) {
+  const now = new Date().toISOString();
+  const scenario = {
+    id: payload.id || uuid(),
+    name: payload.name || '未命名场景',
+    description: payload.description || '',
+    status: 'draft',
+    adjustments: Array.isArray(payload.adjustments) ? payload.adjustments.map((a) => ({ ...a })) : [],
+    results: [],
+    createdBy: payload.createdBy || '未指定',
+    createdAt: now,
+    executedAt: null
+  };
+  scenarios.push(scenario);
+  return { ...scenario };
+}
+
+function updateScenario(id, payload) {
+  const scenario = scenarios.find((s) => s.id === id);
+  if (!scenario) return null;
+  Object.keys(payload).forEach((key) => {
+    if (key === 'id' || key === 'createdAt') return;
+    if (payload[key] !== undefined) {
+      scenario[key] = payload[key];
+    }
+  });
+  return getScenarioById(id);
+}
+
+function deleteScenario(id) {
+  const index = scenarios.findIndex((s) => s.id === id);
+  if (index === -1) return false;
+  scenarios.splice(index, 1);
+  return true;
+}
+
+// ─── Simulation Engine ──────────────────────────────────────────────────
+
+function runSimulation(scenarioId) {
+  const scenario = scenarios.find((s) => s.id === scenarioId);
+  if (!scenario) return null;
+  if (!scenario.adjustments || scenario.adjustments.length === 0) {
+    scenario.results = [];
+    return { ...scenario };
+  }
+
+  // Build value map from adjustments
+  const valueMap = {};
+  const adjustedMetricIds = new Set();
+  scenario.adjustments.forEach((adj) => {
+    if (adj.metricId && adj.adjustedValue != null) {
+      valueMap[adj.metricId] = adj.adjustedValue;
+      adjustedMetricIds.add(adj.metricId);
+    }
+  });
+
+  // Collect all affected metrics via dependency graph (topological order)
+  const affectedIds = new Set(adjustedMetricIds);
+  const reverseIndex = buildReverseDependencyIndex();
+
+  // BFS from adjusted metrics through reverse index (follow dependents)
+  const queue = Array.from(adjustedMetricIds);
+  const visited = new Set();
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (visited.has(current)) continue;
+    visited.add(current);
+    const parents = reverseIndex.get(current);
+    if (parents) {
+      parents.forEach((parentId) => {
+        if (!visited.has(parentId)) {
+          affectedIds.add(parentId);
+          queue.push(parentId);
+        }
+      });
+    }
+  }
+
+  // Collect metrics in topological order (dependencies first)
+  const orderedMetrics = [];
+  const depVisited = new Set();
+  function visit(metricId) {
+    if (depVisited.has(metricId)) return;
+    depVisited.add(metricId);
+    const versions = metricVersions.get(metricId) || [];
+    const currentVersion = versions.find((v) => v.id === metrics.find((m) => m.id === metricId)?.currentVersionId) || versions[versions.length - 1];
+    (currentVersion?.dependencies || []).forEach((depId) => {
+      if (affectedIds.has(depId)) visit(depId);
+    });
+    orderedMetrics.push(metricId);
+  }
+  affectedIds.forEach((id) => visit(id));
+
+  // Evaluate each metric in topological order
+  const results = [];
+  orderedMetrics.forEach((metricId) => {
+    const metric = metrics.find((m) => m.id === metricId);
+    if (!metric) return;
+
+    // Build name -> value map for formula evaluation
+    const nameValueMap = {};
+    Object.keys(valueMap).forEach((id) => {
+      const m = metrics.find((mm) => mm.id === id);
+      if (m) nameValueMap[m.name] = valueMap[id];
+    });
+    // Also add resolved values for dependencies already computed
+    results.forEach((r) => {
+      const m = metrics.find((mm) => mm.id === r.metricId);
+      if (m) nameValueMap[m.name] = r.simulatedValue;
+    });
+
+    let simulatedValue = null;
+    let baseValue = null;
+
+    if (adjustedMetricIds.has(metricId)) {
+      simulatedValue = valueMap[metricId];
+    } else {
+      const versions = metricVersions.get(metricId) || [];
+      const currentVersion = versions.find((v) => v.id === metric.currentVersionId) || versions[versions.length - 1];
+      if (currentVersion?.formula) {
+        simulatedValue = evaluateFormula(currentVersion.formula, nameValueMap);
+      }
+    }
+
+    results.push({
+      metricId: metric.id,
+      metricName: metric.name,
+      baseValue,
+      simulatedValue,
+      change: simulatedValue != null && baseValue != null ? simulatedValue - baseValue : null,
+      changePercent: simulatedValue != null && baseValue != null && baseValue !== 0
+        ? Math.round(((simulatedValue - baseValue) / baseValue) * 10000) / 100
+        : null
+    });
+  });
+
+  scenario.results = results;
+  scenario.status = 'completed';
+  scenario.executedAt = new Date().toISOString();
+  return getScenarioById(scenarioId);
+}
+
+// ─── Dashboard ──────────────────────────────────────────────────────────
+
+function getDashboardSummary() {
+  const openDecisions = decisions.filter((d) => d.status === 'draft' || d.status === 'in-review');
+  const activeAnomalies = anomalies.filter((a) => a.status === 'open' || a.status === 'investigating');
+  let totalActions = 0;
+  let openActions = 0;
+  decisionActionItems.forEach((items) => {
+    totalActions += items.length;
+    openActions += items.filter((a) => a.status === 'open' || a.status === 'in-progress').length;
+  });
+  return {
+    decisions: { total: decisions.length, open: openDecisions.length, byStatus: {} },
+    anomalies: { total: anomalies.length, active: activeAnomalies.length, bySeverity: {} },
+    actions: { total: totalActions, open: openActions },
+    scenarios: { total: scenarios.length }
+  };
 }
 
 function seedData() {
@@ -747,6 +1211,109 @@ function seedData() {
     }
   });
 
+  // ── Seed decision system data ──
+  if (decisions.length === 0) {
+    const seedDecisions = [
+      {
+        id: 'dec-1',
+        title: '边缘节点成本优化',
+        summary: '2024Q2 边缘带宽成本持续上升，需调整定价策略和节点复用率目标',
+        context: 'Q2 单位带宽售卖成本上升 12%，节点复用率跌破 60% 阈值，需要从定价、采购、运营多维度协同调整。',
+        status: 'approved',
+        priority: 'high',
+        owner: '张敏',
+        decision: '1. 将定价底线调整为毛利率 ≥18%\n2. 节点复用率目标提升至 70%\n3. 对超卖率 >1.3 的客户加入风控审批',
+        expectedImpact: '预计单位带宽售卖成本降低 8%，整体毛利率提升 3 个百分点',
+        linkedMetricIds: ['unit-bandwidth-cost', 'node-reuse-rate', 'business-oversell-rate'],
+        linkedAnomalyIds: [],
+        linkedScenarioId: null,
+        createdAt: '2024-05-28T10:00:00.000Z',
+        updatedAt: '2024-06-01T10:00:00.000Z'
+      },
+      {
+        id: 'dec-2',
+        title: 'DAU 增长策略调整',
+        summary: 'DAU 增速放缓，需优化留存率和召回策略',
+        context: 'DAU 环比增长降至 3%，其中留存活跃用户增长停滞，需要从内容质量和推荐精度入手。',
+        status: 'in-review',
+        priority: 'high',
+        owner: '刘畅',
+        decision: '1. 内容质量目标提升至 0.85\n2. 推荐精度目标提升至 0.80\n3. 加大回流用户召回投入',
+        expectedImpact: '预计留存率提升 15%，DAU 增长率回升至 6%',
+        linkedMetricIds: ['dau', 'retention-rate', 'content-quality-score', 'recommendation-precision'],
+        linkedAnomalyIds: [],
+        linkedScenarioId: null,
+        createdAt: '2024-06-25T14:00:00.000Z',
+        updatedAt: '2024-06-28T14:00:00.000Z'
+      }
+    ];
+    seedDecisions.forEach((d) => {
+      decisions.push(d);
+      decisionActionItems.set(d.id, []);
+    });
+
+    // Action items for dec-1
+    const dec1Actions = [
+      { id: uuid(), decisionId: 'dec-1', description: '完成定价模型 recalibration', owner: '张敏', dueDate: '2024-06-30', status: 'in-progress', metricId: 'unit-bandwidth-cost', createdAt: '2024-05-28T10:00:00.000Z', updatedAt: '2024-05-28T10:00:00.000Z' },
+      { id: uuid(), decisionId: 'dec-1', description: '提交节点复用率提升方案', owner: '李强', dueDate: '2024-07-07', status: 'open', metricId: 'node-reuse-rate', createdAt: '2024-05-28T10:00:00.000Z', updatedAt: '2024-05-28T10:00:00.000Z' }
+    ];
+    decisionActionItems.set('dec-1', dec1Actions);
+
+    const seedAnomalies = [
+      {
+        id: 'anomaly-1',
+        metricId: 'unit-bandwidth-cost',
+        metricName: '单位带宽售卖成本',
+        currentValue: 1.12,
+        expectedValue: 1.0,
+        deviation: 12,
+        severity: 'critical',
+        status: 'investigating',
+        description: '单位带宽售卖成本连续 3 个月上升，本月环比 +12%，超过预警阈值 10%',
+        detector: '张敏',
+        detectedAt: '2024-05-25T08:00:00.000Z'
+      },
+      {
+        id: 'anomaly-2',
+        metricId: 'node-reuse-rate',
+        metricName: '节点复用率',
+        currentValue: 0.58,
+        expectedValue: 0.65,
+        deviation: -10.8,
+        severity: 'high',
+        status: 'open',
+        description: '节点复用率跌破 60% 警戒线，部分区域节点利用率不足 50%',
+        detector: '李强',
+        detectedAt: '2024-05-20T06:00:00.000Z'
+      }
+    ];
+    seedAnomalies.forEach((a) => anomalies.push(a));
+
+    const seedScenario = {
+      id: 'scenario-1',
+      name: '内容质量提升对留存率的影响',
+      description: '假设将内容质量从当前水平提升到 0.9，查看对留存率和 DAU 的传导效应',
+      status: 'completed',
+      adjustments: [
+        { metricId: 'content-quality-score', metricName: '内容质量', originalValue: null, adjustedValue: 0.9 },
+        { metricId: 'recommendation-precision', metricName: '推荐精度', originalValue: null, adjustedValue: 0.85 }
+      ],
+      results: [],
+      createdBy: '刘畅',
+      createdAt: '2024-06-26T10:00:00.000Z',
+      executedAt: '2024-06-26T10:01:00.000Z'
+    };
+    // Run simulation on seed scenario
+    seedScenario.results = [
+      { metricId: 'content-quality-score', metricName: '内容质量', baseValue: null, simulatedValue: 0.9, change: null, changePercent: null },
+      { metricId: 'recommendation-precision', metricName: '推荐精度', baseValue: null, simulatedValue: 0.85, change: null, changePercent: null },
+      { metricId: 'retention-rate', metricName: '留存率', baseValue: null, simulatedValue: 0.765, change: null, changePercent: null },
+      { metricId: 'retained-active-users', metricName: '留存活跃用户', baseValue: null, simulatedValue: null, change: null, changePercent: null },
+      { metricId: 'dau', metricName: 'DAU', baseValue: null, simulatedValue: null, change: null, changePercent: null }
+    ];
+    scenarios.push(seedScenario);
+  }
+
   return now;
 }
 
@@ -1170,5 +1737,28 @@ module.exports = {
   publishMetricVersion,
   getMetricVersions,
   getMetricLinkedNotes,
-  searchMetrics
+  searchMetrics,
+  // Decision system
+  listDecisions,
+  getDecisionById,
+  createDecision,
+  updateDecision,
+  deleteDecision,
+  listActionsForDecision,
+  listAllActions,
+  createActionItem,
+  updateActionItem,
+  deleteActionItem,
+  listAnomalies,
+  getAnomalyById,
+  createAnomaly,
+  updateAnomaly,
+  traceAnomaly,
+  listScenarios,
+  getScenarioById,
+  createScenario,
+  updateScenario,
+  deleteScenario,
+  runSimulation,
+  getDashboardSummary
 };
