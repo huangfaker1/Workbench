@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import NotesWorkspace from './views/NotesWorkspace';
 import MetricsWorkspace from './views/MetricsWorkspace';
+import DecisionWorkspace from './views/DecisionWorkspace';
 import './App.css';
 
 function resolveRoutingState() {
@@ -18,6 +19,9 @@ function resolveRoutingState() {
     const metricParam = params.get('metric');
     if (tabParam === 'metrics') {
       tab = 'metrics';
+    }
+    if (tabParam === 'decisions') {
+      tab = 'decisions';
     }
     if (metricParam) {
       metric = metricParam;
@@ -42,7 +46,7 @@ function resolveRoutingState() {
 function commitRoutingState(tab, metricId, { replace = false } = {}) {
   if (typeof window === 'undefined') return;
   const params = new URLSearchParams();
-  params.set('tab', tab === 'metrics' ? 'metrics' : 'notes');
+  params.set('tab', tab === 'metrics' ? 'metrics' : tab === 'decisions' ? 'decisions' : 'notes');
   if (tab === 'metrics' && metricId) {
     params.set('metric', metricId);
   }
@@ -86,6 +90,11 @@ function App() {
     commitRoutingState('metrics', metricId || null);
   }, [selectedMetricId]);
 
+  const goToDecisions = useCallback(() => {
+    setActiveTab('decisions');
+    commitRoutingState('decisions', null);
+  }, []);
+
   const handleMetricNavigate = (metricId) => {
     const targetId = metricId || null;
     const current = resolveRoutingState();
@@ -117,12 +126,21 @@ function App() {
           >
             指标字典
           </button>
+          <button
+            type="button"
+            className={activeTab === 'decisions' ? 'active' : ''}
+            onClick={goToDecisions}
+          >
+            智能决策
+          </button>
         </nav>
       </header>
 
       <main className="app-main">
         {activeTab === 'notes' ? (
           <NotesWorkspace onMetricNavigate={handleMetricNavigate} />
+        ) : activeTab === 'decisions' ? (
+          <DecisionWorkspace onMetricNavigate={handleMetricNavigate} />
         ) : (
           <MetricsWorkspace
             initialMetricId={selectedMetricId}
